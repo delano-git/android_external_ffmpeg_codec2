@@ -17,6 +17,8 @@
 #ifndef C2_FFMPEG_AUDIO_DECODE_COMPONENT_H
 #define C2_FFMPEG_AUDIO_DECODE_COMPONENT_H
 
+#include <vector>
+
 #include <SimpleC2Component.h>
 #include "C2FFMPEGCommon.h"
 #include "C2FFMPEGAudioDecodeInterface.h"
@@ -52,7 +54,7 @@ private:
     c2_status_t processCodecConfig(C2ReadView* inBuffer);
     c2_status_t sendInputBuffer(C2ReadView* inBuffer, int64_t timestamp);
     c2_status_t receiveFrame(bool* hasFrame);
-    c2_status_t getOutputBuffer(C2WriteView* outBuffer);
+    c2_status_t getOutputBuffer(uint8_t* outBuffer);
     void updateAudioParameters();
 
 private:
@@ -67,6 +69,7 @@ private:
     bool mEOSSignalled;
     // Audio resampling
     struct SwrContext* mSwrCtx;
+    std::vector<uint8_t> mOutPcm;
     enum AVSampleFormat mTargetSampleFormat;
     int mTargetSampleRate;
     int mTargetChannels;

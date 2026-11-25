@@ -389,7 +389,7 @@ c2_status_t C2FFMPEGAudioDecodeComponent::receiveFrame(bool* hasFrame) {
     return C2_OK;
 }
 
-c2_status_t C2FFMPEGAudioDecodeComponent::getOutputBuffer(C2WriteView* outBuffer) {
+c2_status_t C2FFMPEGAudioDecodeComponent::getOutputBuffer(uint8_t* outBuffer) {
     if (! mSwrCtx ||
         mSwrCtx->in_sample_fmt != mFrame->format ||
         mSwrCtx->in_sample_rate != mFrame->sample_rate ||
@@ -424,7 +424,7 @@ c2_status_t C2FFMPEGAudioDecodeComponent::getOutputBuffer(C2WriteView* outBuffer
               mTargetSampleRate, mTargetChannels, av_get_sample_fmt_name(mTargetSampleFormat));
     }
 
-    uint8_t* out[1] = { outBuffer->data() };
+    uint8_t* out[1] = { outBuffer };
     int ret = swr_convert(mSwrCtx, out, mFrame->nb_samples, (const uint8_t**)mFrame->extended_data, mFrame->nb_samples);
 
     if (ret < 0) {
@@ -435,9 +435,9 @@ c2_status_t C2FFMPEGAudioDecodeComponent::getOutputBuffer(C2WriteView* outBuffer
     }
 
 #if DEBUG_FRAMES
-    ALOGD("getOutputBuffer: audio converted - sr=%d, ch=%d, fmt=%s, #=%d => sr=%d, ch=%d, fmt=%s, #=%d(%d)",
+    ALOGD("getOutputBuffer: audio converted - sr=%d, ch=%d, fmt=%s, #=%d => sr=%d, ch=%d, fmt=%s, #=%d",
           mFrame->sample_rate, mFrame->ch_layout.nb_channels, av_get_sample_fmt_name((enum AVSampleFormat)mFrame->format), mFrame->nb_samples,
-          mTargetSampleRate, mTargetChannels, av_get_sample_fmt_name(mTargetSampleFormat), mFrame->nb_samples, outBuffer->capacity());
+          mTargetSampleRate, mTargetChannels, av_get_sample_fmt_name(mTargetSampleFormat), ret);
 #endif
 
     return C2_OK;
@@ -588,7 +588,7 @@ void C2FFMPEGAudioDecodeComponent::process(
                       mTargetSampleRate, mTargetChannels, av_get_sample_fmt_name(mTargetSampleFormat),
                       mFrame->sample_rate, mFrame->ch_layout.nb_channels, av_get_sample_fmt_name(mTargetSampleFormat));
 
-                if (work->worklets.front()->output.buffers.size() > 0) {
+                if (! mOutPcm.empty()) {
                     // Not sure if this would ever happen, nor how to handle it...
                     ALOGW("process: audio params changed with non empty output buffers pending");
                 }
@@ -604,18 +604,56 @@ void C2FFMPEGAudioDecodeComponent::process(
                     updateAudioParameters();
                 } else {
                     ALOGE("process: config update failed err = %d", err);
+                    mOutPcm.clear();
                     work->result = C2_CORRUPTED;
                     return;
                 }
             }
 
-            std::shared_ptr<C2LinearBlock> block;
-            int len = av_samples_get_buffer_size(NULL, mTargetChannels, mFrame->nb_samples, mTargetSampleFormat, 0);
+            // Align 1: the default alignment rounds nb_samples up to a multiple of 32, which
+            // pads frames like TrueHD's 40-sample access units with silence.
+            int len = av_samples_get_buffer_size(NULL, mTargetChannels, mFrame->nb_samples, mTargetSampleFormat, 1);
+            if (len < 0) {
+                ALOGE("process: invalid output size for #=%d", mFrame->nb_samples);
+                mOutPcm.clear();
+                work->result = C2_CORRUPTED;
+                return;
+            }
 
-            err = pool->fetchLinearBlock(len, { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE }, &block);
+            if (mOutPcm.empty() && mFrame->best_effort_timestamp != AV_NOPTS_VALUE) {
+                work->worklets.front()->output.ordinal.timestamp = mFrame->best_effort_timestamp;
+            }
+
+            size_t offset = mOutPcm.size();
+            mOutPcm.resize(offset + len);
+
+            if (needResampling) {
+                err = getOutputBuffer(mOutPcm.data() + offset);
+                if (err != C2_OK) {
+                    mOutPcm.clear();
+                    work->result = err;
+                    return;
+                }
+            }
+            else {
+#if DEBUG_FRAMES
+                ALOGD("process: no audio conversion needed");
+#endif
+                memcpy(mOutPcm.data() + offset, mFrame->data[0], len);
+            }
+        }
+
+        // An input buffer can hold several frames (ExoPlayer packs 16 TrueHD access units
+        // per buffer), but MediaCodec takes a single output buffer per work, so hand all
+        // of them out together. Stopping after the first frame would leave the rest in the
+        // decoder and make it reject the next input with EAGAIN.
+        if (! mOutPcm.empty()) {
+            std::shared_ptr<C2LinearBlock> block;
+
+            err = pool->fetchLinearBlock(mOutPcm.size(), { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE }, &block);
             if (err != C2_OK) {
-                ALOGE("process: failed to fetch linear block for #=%d err = %d",
-                      mFrame->nb_samples, err);
+                ALOGE("process: failed to fetch linear block of %zu bytes err = %d", mOutPcm.size(), err);
+                mOutPcm.clear();
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -625,31 +663,15 @@ void C2FFMPEGAudioDecodeComponent::process(
             err = wView.error();
             if (err != C2_OK) {
                 ALOGE("process: write view map failed err = %d", err);
+                mOutPcm.clear();
                 work->result = C2_CORRUPTED;
                 return;
             }
 
-            if (needResampling) {
-                err = getOutputBuffer(&wView);
-                if (err != C2_OK) {
-                    work->result = err;
-                    return;
-                }
-            }
-            else {
-#if DEBUG_FRAMES
-                ALOGD("process: no audio conversion needed");
-#endif
-                memcpy(wView.data(), mFrame->data[0], mFrame->linesize[0]);
-            }
-
-            std::shared_ptr<C2Buffer> buffer = createLinearBuffer(std::move(block), 0, len);
-
-            work->worklets.front()->output.buffers.push_back(buffer);
-            if (mFrame->best_effort_timestamp != AV_NOPTS_VALUE) {
-                work->worklets.front()->output.ordinal.timestamp = mFrame->best_effort_timestamp;
-            }
-            break;
+            memcpy(wView.data(), mOutPcm.data(), mOutPcm.size());
+            work->worklets.front()->output.buffers.push_back(
+                    createLinearBuffer(std::move(block), 0, mOutPcm.size()));
+            mOutPcm.clear();
         }
     }
 #if DEBUG_FRAMES
