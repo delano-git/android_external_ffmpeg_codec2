@@ -15,49 +15,54 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "android.hardware.media.c2-service-ffmpeg"
+#define LOG_TAG "android.hardware.media.c2@1.2-service-ffmpeg"
 
 #include "C2FFMPEGComponentStore.h"
 
 #include <android-base/logging.h>
-#include <android/binder_manager.h>
-#include <android/binder_process.h>
-#include <codec2/aidl/ComponentStore.h>
+#include <binder/ProcessState.h>
+#include <codec2/hidl/1.2/ComponentStore.h>
+#include <hidl/HidlTransportSupport.h>
 #include <minijail.h>
 
-using namespace ::aidl::android::hardware::media::c2;
+// The Qualcomm and Dolby Codec2 stores on this device are HIDL, and the framework talks to
+// either HIDL or AIDL stores, never both. Serve the FFmpeg store over HIDL so it is used
+// alongside them.
 
-// This is the absolute on-device path of the prebuilt_etc module
-// "android.hardware.media.c2-ffmpeg-default-seccomp_policy" in Android.bp.
 static constexpr char kBaseSeccompPolicyPath[] =
-        "/apex/com.android.hardware.media.c2.ffmpeg/etc/seccomp_policy/"
-        "android.hardware.media.c2-ffmpeg-default-seccomp_policy";
+        "/vendor/etc/seccomp_policy/android.hardware.media.c2-default-seccomp_policy";
 
 // Additional seccomp permissions can be added in this file.
 static constexpr char kExtSeccompPolicyPath[] =
-        "/apex/com.android.hardware.media.c2.ffmpeg/etc/seccomp_policy/"
-        "android.hardware.media.c2-ffmpeg-extended-seccomp_policy";
+        "/vendor/etc/seccomp_policy/android.hardware.media.c2-ffmpeg-extended-seccomp_policy";
+
+static constexpr char kInstanceName[] = "ffmpeg";
 
 int main() {
-    LOG(DEBUG) << "android.hardware.media.c2-service-ffmpeg starting...";
+    using namespace ::android;
+    using namespace ::android::hardware::media::c2::V1_2;
+
+    LOG(DEBUG) << "android.hardware.media.c2@1.2-service-ffmpeg starting...";
 
     // Set up minijail to limit system calls.
     signal(SIGPIPE, SIG_IGN);
-    android::SetUpMinijail(kBaseSeccompPolicyPath, kExtSeccompPolicyPath);
+    SetUpMinijail(kBaseSeccompPolicyPath, kExtSeccompPolicyPath);
+
+    // Enable vndbinder to allow vendor-to-vendor binder calls.
+    ProcessState::initWithDriver("/dev/vndbinder");
+    ProcessState::self()->startThreadPool();
 
     // Extra threads may be needed to handle a stacked IPC sequence that
     // contains alternating binder and hwbinder calls. (See b/35283480.)
-    ABinderProcess_setThreadPoolMaxThreadCount(8);
-    ABinderProcess_startThreadPool();
+    hardware::configureRpcThreadpool(8, true /* callerWillJoin */);
 
     // Create IComponentStore service.
-    std::shared_ptr<IComponentStore> store = ndk::SharedRefBase::make<utils::ComponentStore>(
-            std::make_shared<android::C2FFMPEGComponentStore>());
+    sp<IComponentStore> store =
+            new utils::ComponentStore(std::make_shared<C2FFMPEGComponentStore>());
+    CHECK(store != nullptr);
+    CHECK(store->registerAsService(kInstanceName) == OK)
+            << "Cannot register IComponentStore/" << kInstanceName;
 
-    const std::string instance = std::string() + IComponentStore::descriptor + "/default";
-    binder_status_t status = AServiceManager_addService(store->asBinder().get(), instance.c_str());
-    CHECK(status == STATUS_OK);
-
-    ABinderProcess_joinThreadPool();
+    hardware::joinRpcThreadpool();
     return EXIT_FAILURE;  // should not reach
 }

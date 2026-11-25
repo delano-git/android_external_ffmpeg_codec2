@@ -44,14 +44,9 @@ static const C2FFMPEGComponentInfo kFFMPEGVideoComponents[] = {
 static const size_t kNumVideoComponents =
     (sizeof(kFFMPEGVideoComponents) / sizeof(kFFMPEGVideoComponents[0]));
 
+// Only Dolby TrueHD: every other audio format already has a Qualcomm, Dolby or Google decoder.
 static const C2FFMPEGComponentInfo kFFMPEGAudioComponents[] = {
-    { "c2.ffmpeg.aac.decoder"   , MEDIA_MIMETYPE_AUDIO_AAC          , AV_CODEC_ID_AAC    },
-    { "c2.ffmpeg.ac3.decoder"   , MEDIA_MIMETYPE_AUDIO_AC3          , AV_CODEC_ID_AC3    },
-    { "c2.ffmpeg.alac.decoder"  , MEDIA_MIMETYPE_AUDIO_ALAC         , AV_CODEC_ID_ALAC   },
-    { "c2.ffmpeg.flac.decoder"  , MEDIA_MIMETYPE_AUDIO_FLAC         , AV_CODEC_ID_FLAC   },
-    { "c2.ffmpeg.mp2.decoder"   , MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II, AV_CODEC_ID_MP2    },
-    { "c2.ffmpeg.mp3.decoder"   , MEDIA_MIMETYPE_AUDIO_MPEG         , AV_CODEC_ID_MP3    },
-    { "c2.ffmpeg.vorbis.decoder", MEDIA_MIMETYPE_AUDIO_VORBIS       , AV_CODEC_ID_VORBIS },
+    { "c2.ffmpeg.truehd.decoder", MEDIA_MIMETYPE_AUDIO_DOLBY_TRUEHD, AV_CODEC_ID_TRUEHD },
 };
 
 static const size_t kNumAudioComponents =
@@ -129,7 +124,8 @@ std::vector<std::shared_ptr<const C2Component::Traits>>
     // FIXME: Prefer OMX codecs for the time being...
     uint32_t defaultRank = ::android::base::GetUintProperty("persist.vendor.ffmpeg_codec2.rank", 0x110u);
     uint32_t defaultRankAudio = ::android::base::GetUintProperty("persist.vendor.ffmpeg_codec2.rank.audio", defaultRank);
-    uint32_t defaultRankVideo = ::android::base::GetUintProperty("persist.vendor.ffmpeg_codec2.rank.video", defaultRank);
+    uint32_t defaultRankVideo = ::android::base::GetUintProperty("persist.vendor.ffmpeg_codec2.rank.video",
+            RANK_DISABLED);  // the Qualcomm hardware decoders cover video
     ALOGD("listComponents: defaultRank=%x, defaultRankAudio=%x, defaultRankVideo=%x",
           defaultRank, defaultRankAudio, defaultRankVideo);
     if (defaultRank != RANK_DISABLED) {

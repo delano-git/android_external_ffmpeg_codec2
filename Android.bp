@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 cc_binary {
-    name: "android.hardware.media.c2-service-ffmpeg",
+    name: "android.hardware.media.c2@1.2-service-ffmpeg",
     relative_install_path: "hw",
     vendor: true,
+    defaults: ["libcodec2-hidl-defaults"],
     srcs: [
         "C2FFMPEGAudioDecodeComponent.cpp",
         "C2FFMPEGAudioDecodeInterface.cpp",
@@ -18,16 +19,12 @@ cc_binary {
     ],
     shared_libs: [
         "android.hardware.graphics.common@1.0",
-        "android.hardware.media.c2-V1-ndk",
         "libavcodec",
         "libavservices_minijail",
         "libavutil",
         "libbase",
-        "libbinder_ndk",
-        "libcodec2_aidl",
-        "libcodec2_hal_common",
+        "libbinder",
         "libcodec2_soft_common",
-        "libcodec2_vndk",
         "libffmpeg_utils",
         "liblog",
         "libstagefright_foundation",
@@ -35,50 +32,17 @@ cc_binary {
         "libswscale",
         "libutils",
     ],
-    installable: false,
-}
-
-prebuilt_etc {
-    name: "android.hardware.media.c2-ffmpeg-default-seccomp_policy",
-    src: ":android.hardware.media.c2-default-seccomp_policy",
-    sub_dir: "seccomp_policy",
-    installable: false,
+    init_rc: ["android.hardware.media.c2@1.2-service-ffmpeg.rc"],
+    vintf_fragments: ["android.hardware.media.c2@1.2-service-ffmpeg.xml"],
+    required: [
+        "android.hardware.media.c2-default-seccomp_policy",
+        "android.hardware.media.c2-ffmpeg-extended-seccomp_policy",
+    ],
 }
 
 prebuilt_etc {
     name: "android.hardware.media.c2-ffmpeg-extended-seccomp_policy",
     src: "android.hardware.media.c2-ffmpeg-extended-seccomp_policy",
     sub_dir: "seccomp_policy",
-    installable: false,
-}
-
-prebuilt_etc {
-    name: "android.hardware.media.c2-service-ffmpeg.rc",
-    src: "android.hardware.media.c2-service-ffmpeg.rc",
-    installable: false,
-}
-
-prebuilt_etc {
-    name: "android.hardware.media.c2-service-ffmpeg.xml",
-    src: "android.hardware.media.c2-service-ffmpeg.xml",
-    sub_dir: "vintf",
-    installable: false,
-}
-
-apex {
-    name: "com.android.hardware.media.c2.ffmpeg",
-    manifest: "apex_manifest.json",
-    file_contexts: "apex_file_contexts",
-    key: "com.android.hardware.key",
-    certificate: ":com.android.hardware.certificate",
-    updatable: false,
     vendor: true,
-    binaries: ["android.hardware.media.c2-service-ffmpeg"],
-
-    prebuilts: [
-        "android.hardware.media.c2-ffmpeg-default-seccomp_policy",
-        "android.hardware.media.c2-ffmpeg-extended-seccomp_policy",
-        "android.hardware.media.c2-service-ffmpeg.rc",
-        "android.hardware.media.c2-service-ffmpeg.xml",
-    ],
 }

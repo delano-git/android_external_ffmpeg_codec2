@@ -55,7 +55,7 @@ C2FFMPEGAudioDecodeInterface::C2FFMPEGAudioDecodeInterface(
             .withDefault(new C2StreamSampleRateInfo::output(0u, 44100))
             .withFields({C2F(mSampleRate, value).oneOf({
                 7350, 8000, 11025, 12000, 16000, 22050, 24000, 32000,
-                44100, 48000, 64000, 88200, 96000, 192000
+                44100, 48000, 64000, 88200, 96000, 176400, 192000
             })})
             .withSetter(Setter<decltype(*mSampleRate)>::NonStrictValueWithNoDeps)
             .build());
@@ -63,7 +63,7 @@ C2FFMPEGAudioDecodeInterface::C2FFMPEGAudioDecodeInterface(
     addParameter(
             DefineParam(mBitrate, C2_PARAMKEY_BITRATE)
             .withDefault(new C2StreamBitrateInfo::input(0u, 64000))
-            .withFields({C2F(mBitrate, value).inRange(8000, 320000)})
+            .withFields({C2F(mBitrate, value).inRange(8000, 18000000)})
             .withSetter(Setter<decltype(*mBitrate)>::NonStrictValueWithNoDeps)
             .build());
 
