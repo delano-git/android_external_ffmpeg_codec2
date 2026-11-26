@@ -91,6 +91,13 @@ C2FFMPEGAudioDecodeInterface::C2FFMPEGAudioDecodeInterface(
                 DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
                 .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 32768))
                 .build());
+    } else if (strcasecmp(componentInfo->mediaType, MEDIA_MIMETYPE_AUDIO_DOLBY_TRUEHD) == 0) {
+        // Extractors pack up to 16 TrueHD access units per sample, which
+        // exceeds the 4 KiB default for audio decoders.
+        addParameter(
+                DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
+                .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 65536))
+                .build());
     }
 }
 
